@@ -75,9 +75,9 @@ private[neotype] object ErrorMessages:
       s"""// ${pos.sourceFile.path}:${pos.startLine}\n  """.stripMargin.dim
     }
     s"""  $header
-     |  $newTypeNameString's ${"validate".green} method must be an ${"inline".magenta} def!
+     |  $newTypeNameString's ${Macros.validateMethodName.green} method must be an ${"inline".magenta} def!
      |
-     |  ${"Neotype".bold} works by parsing the AST of your ${"validate".green} method into an executable
+     |  ${"Neotype".bold} works by parsing the AST of your ${Macros.validateMethodName.green} method into an executable
      |  expression at compile-time. In order to access the AST at compile-time, you
      |  must add the ${"inline".magenta} keyword:
      |
@@ -85,9 +85,9 @@ private[neotype] object ErrorMessages:
      |  $footer
      |""".stripMargin
 
-  def failedToParseValidateMethod(using
+  def failedToParseMethod(using
       Quotes
-  )(input: Expr[Any], nt: quotes.reflect.TypeRepr, source: Option[String], missingReference: Option[String]): String =
+  )(methodName: String, input: Expr[Any], nt: quotes.reflect.TypeRepr, source: Option[String], missingReference: Option[String]): String =
 
     val newTypeNameString = nt.typeSymbol.name.replaceAll("\\$$", "").green.bold
     val sourceExpr = source.fold("") { s =>
@@ -102,9 +102,9 @@ private[neotype] object ErrorMessages:
       }
 
     s"""  $header
-       |  I've ${"FAILED".red} to parse $newTypeNameString's ${"validate".green} method!$sourceExpr$missingReferenceMessage
+       |  I've ${"FAILED".red} to parse $newTypeNameString's ${methodName.green} method!$sourceExpr$missingReferenceMessage
        |
-       |  ${"Neotype".bold} works by parsing the AST of your ${"validate".green} method into an executable
+       |  ${"Neotype".bold} works by parsing the AST of your ${methodName.green} method into an executable
        |  expression at compile-time. Sadly, this means I cannot parse arbitrary,
        |  user-defined methods. Likewise, support for the entire Scala standard
        |  library is incomplete.

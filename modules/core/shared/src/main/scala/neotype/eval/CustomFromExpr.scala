@@ -58,7 +58,9 @@ object CustomFromExpr:
   given fromExprOption[A]: FromExpr[Option[A]] with
     def unapply(x: Expr[Option[A]])(using Quotes) =
       import quotes.reflect.*
-      val aType = x.asTerm.tpe.widen.typeArgs.head.asType
+      val aType = x.asTerm.tpe.widen.typeArgs.headOption.map(_.asType).getOrElse(
+        throw new Exception(s"Unable to extract type from: ${x.show}")
+      )
       fromExprForType[A](aType) match
         case None => None
         case Some(fromExprA) =>

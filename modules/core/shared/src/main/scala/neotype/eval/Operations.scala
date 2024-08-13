@@ -4,12 +4,12 @@ private[neotype] object Operations:
 
   def minus(lhs: Any, rhs: Any): Any =
     (lhs, rhs) match
-      case (lhs: Set[Any], rhs: Any) => lhs - rhs
+      case (lhs: Set[Any @unchecked], rhs: Any) => lhs - rhs
       case _                         => performNumericBinOp(NumericBinOp.Minus, lhs, rhs)
   def plus(lhs: Any, rhs: Any): Any =
     (lhs, rhs) match
       case (lhs: String, rhs: String) => lhs + rhs
-      case (lhs: Set[Any], rhs: Any)  => lhs + rhs
+      case (lhs: Set[Any @unchecked], rhs: Any)  => lhs + rhs
       case _                          => performNumericBinOp(NumericBinOp.Plus, lhs, rhs)
   def times(lhs: Any, rhs: Any): Any  = performNumericBinOp(NumericBinOp.Times, lhs, rhs)
   def divide(lhs: Any, rhs: Any): Any = performNumericBinOp(NumericBinOp.Divide, lhs, rhs)

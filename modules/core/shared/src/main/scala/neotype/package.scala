@@ -3,25 +3,34 @@ package neotype
 import scala.compiletime.summonInline
 import scala.quoted.*
 
-sealed abstract class TypeWrapper[A]:
+sealed abstract class TypeWrapper[ErrorType, A]:
   type Type
 
-  /** Validates the input and returns a boolean or an error message.
-    */
-  def validate(input: A): Boolean | String = true
+  /** Validates the input and returns an error message if validation fails. */
+  def validateWithError(input: A): Option[ErrorType] = None
+
+  /** Converts the error type to a string. This is used when compiler detects that validation fails in compile time. */
+  def errorToString(error: ErrorType): String
+
+  inline def validateWithErrorAsString(input: A): Option[String] = 
+    validateWithError(input) match
+      case None => None
+      case Some(error) => Some(errorToString(error))
 
   /** Creates a new instance of the newtype.
     *
-    * If the `validate` method is not defined for this, it will simply wrap the
+    * If the `validateWithError` method is not defined for this, it will simply wrap the
     * input in the neotype.
     *
-    * If `validate` is defined, it will be called at compile-time to check if
+    * If `validateWithError` is defined, it will be called at compile-time to check if
     * the input is valid. If it fails, it will raise a compile-time error. input
     * should be a literal or a constant expression, a compile-time known
     * value—otherwise, you should use the `make` method instead.
     */
   inline def apply(inline input: A): Type =
-    ${ Macros.applyImpl[A, Type, this.type]('input, '{ INPUT => validate(INPUT) }) }
+    ${ Macros.applyImpl[A, Type, this.type](
+      'input, '{ (INPUT: A) => validateWithErrorAsString(INPUT) }
+    ) }
 
   /** Creates a list of newtype instances.
     *
@@ -32,13 +41,13 @@ sealed abstract class TypeWrapper[A]:
     * error. Otherwise, it will return a list of newtype instances.
     */
   inline def applyAll(inline values: A*): List[Type] =
-    ${ Macros.applyAllImpl[A, Type, this.type]('values, 'this) }
+    ${ Macros.applyAllImpl[ErrorType, A, Type, this.type]('values, 'this) }
 
   /** WARNING! Creates a new instance of the newtype without performing any
     * validation. ONLY USE THIS IF YOU KNOW WHAT YOU'RE DOING.
     *
     * This method should be used with caution, as it bypasses any validation
-    * defined in the `validate` method. It is recommended to use the `apply`
+    * defined in the `validateWithError` method. It is recommended to use the `apply`
     * method instead, which performs compile-time validation of the input.
     */
   inline def unsafeMake(inline input: A): Type
@@ -50,6 +59,19 @@ sealed abstract class TypeWrapper[A]:
     * `List[Type]`, you can use this method to do so.
     */
   inline def unsafeMakeF[F[_]](inline input: F[A]): F[Type]
+
+trait BasicValidationBehaviour[A]: 
+  self: TypeWrapper[String, A] =>
+
+  override inline def validateWithError(input: A): Option[String] =
+    validate(input) match
+      case error: String => Some(error)
+      case false => Some("Validation Failed")
+      case true => None
+
+  override inline def errorToString(error: String): String = error
+  
+  def validate(input: A): Boolean | String = true
 
 /** `Newtype` allows for the creation of distinct types from existing ones,
   * enabling more type-safe code by leveraging the type system to enforce
@@ -80,10 +102,10 @@ sealed abstract class TypeWrapper[A]:
   * Digits.make(bad) // Left("String must be numeric")
   * ```
   */
-abstract class Newtype[A] extends TypeWrapper[A]:
+abstract class NewtypeWithCustomError[ErrorType, A] extends TypeWrapper[ErrorType, A]:
   opaque type Type = A
 
-  transparent inline given instance: Newtype.WithType[A, Type] = this
+  transparent inline given instance: NewtypeWithCustomError.WithType[ErrorType, A, Type] = this
 
   /** Attempts to create a new instance of the Newtype for the given input by
     * calling the `validate` method.
@@ -91,25 +113,53 @@ abstract class Newtype[A] extends TypeWrapper[A]:
     * If the validation fails, it will return a `Left` with an error message. If
     * the validation succeeds, it will return a `Right` with the new instance.
     */
-  final def make(input: A): Either[String, Type] =
-    validate(input) match
-      case true            => Right(input)
-      case false           => Left("Validation Failed")
-      case message: String => Left(message)
+  final def make(input: A): Either[ErrorType, Type] =
+    validateWithError(input) match
+      case None            => Right(input)
+      case Some(error)     => Left(error)
 
   inline def unwrap(inline input: Type): A = input
 
   inline def unsafeMake(inline input: A): Type              = input
   inline def unsafeMakeF[F[_]](inline input: F[A]): F[Type] = input
 
-object Newtype:
-  type WithType[A, B] = Newtype[A] { type Type = B }
+object NewtypeWithCustomError:
+  type WithType[ErrorType, Unwrapped, Wrapped] = NewtypeWithCustomError[ErrorType, Unwrapped] { type Type = Wrapped }
 
-extension [A, B](value: B)(using newtype: Newtype.WithType[A, B]) //
+extension [A, B](value: B)(using newtype: NewtypeWithCustomError.WithType[?, A, B]) //
   /** Unwraps the newtype, returning the underlying value. */
   inline def unwrap = newtype.unwrap(value)
 
-abstract class Subtype[A] extends TypeWrapper[A]:
+abstract class Newtype[A] extends NewtypeWithCustomError[String, A] with BasicValidationBehaviour[A]
+object Newtype:
+  type WithType[Unwrapped, Wrapped] = Newtype[Unwrapped] { type Type = Wrapped }
+
+
+abstract class SubtypeWithCustomError[ErrorType, A] extends TypeWrapper[ErrorType, A]:
+  opaque type Type <: A = A
+
+  transparent inline given SubtypeWithCustomError.WithType[ErrorType, A, Type] = this
+
+  /** Attempts to create a new instance of the Subtype for the given input by
+    * calling the `validate` method.
+    *
+    * If the validation fails, it will return a `Left` with an error message. If
+    * the validation succeeds, it will return a `Right` with the new instance.
+    */
+  final def make(input: A): Either[ErrorType, Type] =
+    validateWithError(input) match
+      case None            => Right(input)
+      case Some(error)     => Left(error)
+
+  inline def unsafeMake(inline input: A): Type              = input
+  inline def unsafeMakeF[F[_]](inline input: F[A]): F[Type] = input
+
+object SubtypeWithCustomError:
+  type WithType[ErrorType, Unwrapped, Wrapped <: Unwrapped] = 
+    SubtypeWithCustomError[ErrorType, Unwrapped] { type Type = Wrapped }
+
+
+abstract class Subtype[A] extends TypeWrapper[String, A] with BasicValidationBehaviour[A]:
   opaque type Type <: A = A
 
   transparent inline given Subtype.WithType[A, Type] = this

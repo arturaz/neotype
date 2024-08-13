@@ -14,10 +14,15 @@ import scala.util.Try
 import StringFormatting.*
 
 private[neotype] object Macros:
+  /** Name of [[BasicValidationBehaviour.validate]] method. */
+  final val validateMethodName = "validate"
 
-  def applyImpl[Input: Type, T: Type, NT <: TypeWrapper[Input] { type Type = T }: Type](
+  /** Name of [[TypeWrapper.validateWithError]] method. */
+  final val validateWithErrorMethodName = "validateWithError"
+
+  def applyImpl[Input: Type, T: Type, NT <: TypeWrapper[?, Input] { type Type = T }: Type](
       inputExpr: Expr[Input],
-      validate: Expr[Input => Boolean | String]
+      validate: Expr[Input => Option[String]],
   )(using Quotes): Expr[T] =
     import quotes.reflect.*
 
@@ -25,9 +30,15 @@ private[neotype] object Macros:
       case Refinement(t, _, _) => t
       case t                   => t
 
-    val validateMethod = nt.typeSymbol.declaredMethods.find(_.name == "validate") match
-      case None        => return inputExpr.asExprOf[T]
-      case Some(value) => value
+    def findNtMethod(name: String) = 
+      nt.typeSymbol.declaredMethods.find(_.name == name).map((_, name))
+
+    val (validateMethod, validateMethodName) = 
+      findNtMethod(Macros.validateMethodName).orElse(findNtMethod(validateWithErrorMethodName)) match
+        // If no validate methods are defined, we just return the input
+        // DONEXT: how does this work with the new/old behaviour?
+        case None        => return inputExpr.asExprOf[T]
+        case Some(value) => value
 
     val isValidateInline = validateMethod.flags.is(Flags.Inline)
     if !isValidateInline then
@@ -61,12 +72,16 @@ private[neotype] object Macros:
             // throw exception
             // TODO: Add fatal exception error message
             // TODO: Have more specific errors for unknown method calls, functions, etc.
-            report.errorAndAbort(ErrorMessages.failedToParseValidateMethod(inputExpr, nt, treeSource, missingReference))
+            report.errorAndAbort(
+              ErrorMessages.failedToParseMethod(validateMethodName, inputExpr, nt, treeSource, missingReference) + "\n\n" + 
+                s"Render: ${eval.render(using Map.empty)}\n\n" +
+                s"Exception: ${exception}"
+            )
 
-          case Success(true) =>
+          case Success(None) =>
             inputExpr.asExprOf[T]
 
-          case Success(false) =>
+          case Success(Some(errorMessage)) =>
             lazy val expressionSource: Option[String] =
               validate.asTerm match
                 case Uninlined(Block(_, Lambda(_, Seal(Eval(eval))))) =>
@@ -74,15 +89,16 @@ private[neotype] object Macros:
                 case _ =>
                   None
 
-            report.errorAndAbort(ErrorMessages.validationFailureMessage(inputExpr, nt, expressionSource, None))
-
-          case Success(errorMessage: String) =>
-            report.errorAndAbort(ErrorMessages.validationFailureMessage(inputExpr, nt, None, Some(errorMessage)))
+            report.errorAndAbort(ErrorMessages.validationFailureMessage(inputExpr, nt, expressionSource, Some(errorMessage)))
 
       case other =>
-        report.errorAndAbort(ErrorMessages.failedToParseValidateMethod(inputExpr, nt, treeSource, None))
+        report.errorAndAbort(
+          ErrorMessages.failedToParseMethod(validateMethodName, inputExpr, nt, treeSource, None) + "\n\n" +
+            s"class: ${other.getClass().getCanonicalName()}\n\n" +
+            s"Render: ${other.show}"
+        )
 
-  def applyAllImpl[A: Type, T: Type, NT <: TypeWrapper[A] { type Type = T }: Type](
+  def applyAllImpl[Error: Type, A: Type, T: Type, NT <: TypeWrapper[Error, A] { type Type = T }: Type](
       as: Expr[Seq[A]],
       self: Expr[NT]
   )(using Quotes): Expr[List[T]] =

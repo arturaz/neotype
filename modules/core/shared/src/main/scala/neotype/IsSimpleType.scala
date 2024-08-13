@@ -8,7 +8,7 @@ import scala.quoted.*
 trait IsSimpleType[A]
 
 object IsSimpleType:
-  transparent inline given [A <: TypeWrapper[?]]: IsSimpleType[A] = ${
+  transparent inline given [A <: TypeWrapper[?, ?]]: IsSimpleType[A] = ${
     isSimpleTypeImpl[A]
   }
 
@@ -25,7 +25,7 @@ object IsSimpleType:
 trait IsValidatedType[A]
 
 object IsValidatedType:
-  transparent inline given [A <: TypeWrapper[?]]: IsValidatedType[A] = ${
+  transparent inline given [A <: TypeWrapper[?, ?]]: IsValidatedType[A] = ${
     isValidatedTypeImpl[A]
   }
 
@@ -52,4 +52,4 @@ private def hasValidateMethod[A: Type](using Quotes): (String, Boolean) =
     case t                   => t
 
   lazy val nt = getNewtype(TypeRepr.of[A])
-  (nt.show, nt.typeSymbol.declaredMethods.exists(_.name == "validate"))
+  (nt.show, nt.typeSymbol.declaredMethods.exists(_.name == Macros.validateMethodName))
